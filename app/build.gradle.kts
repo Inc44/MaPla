@@ -46,6 +46,10 @@ android {
     }
 }
 
+configurations.configureEach {
+    exclude(group = "org.apache.httpcomponents", module = "httpclient")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
