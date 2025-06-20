@@ -10,6 +10,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import inc44.mapla.drive.DriveServiceHelper
 import inc44.mapla.ui.drive.DrivePickerScreen
 import inc44.mapla.ui.login.SignInScreen
+import inc44.mapla.ui.player.PlayerScreen
 import inc44.mapla.ui.playlist.CreatePlaylistScreen
 
 @Composable
@@ -45,10 +46,21 @@ fun AppNavGraph(navController: NavHostController, activity: Activity) {
                     ?.get<List<inc44.mapla.drive.DriveFile>>("files")
             if (driveHelper != null && files != null) {
                 CreatePlaylistScreen(driveHelper, files) {
-                    navController.popBackStack(Routes.Picker.route, false)
+                    navController.navigate(Routes.Player.route) {
+                        popUpTo(Routes.Editor.route) { inclusive = true } // remove Editor
+                        launchSingleTop = true
+                    }
                 }
             } else {
                 navController.popBackStack()
+            }
+        }
+        composable(Routes.Player.route) {
+            driveHelper?.let {
+                PlayerScreen(
+                    driveHelper = it,
+                    onAddPlaylist = { navController.navigate(Routes.Picker.route) }
+                )
             }
         }
     }

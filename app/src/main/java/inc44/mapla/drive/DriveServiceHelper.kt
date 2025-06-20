@@ -82,4 +82,11 @@ class DriveServiceHelper(context: Context, account: GoogleSignInAccount) {
             }
             parts.reversed().joinToString("/")
         }
+
+    suspend fun downloadFile(fileId: String, dst: java.io.File) =
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            dst.outputStream().use { out ->
+                driveService.files().get(fileId).executeMediaAndDownloadTo(out)
+            }
+        }
 }

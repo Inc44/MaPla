@@ -80,4 +80,7 @@ dependencies {
 
     // Navigation Compose
     implementation(libs.androidx.navigation.compose)
+
+    implementation(libs.androidx.media3.common)
+    implementation(libs.androidx.media3.exoplayer)
 }

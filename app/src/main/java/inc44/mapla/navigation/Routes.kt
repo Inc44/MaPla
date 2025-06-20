@@ -12,4 +12,8 @@ sealed interface Routes {
     object Editor : Routes {
         override val route = "editor"
     }
+
+    object Player : Routes {
+        override val route = "player"
+    }
 }
