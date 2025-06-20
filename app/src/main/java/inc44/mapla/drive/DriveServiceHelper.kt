@@ -3,7 +3,6 @@ package inc44.mapla.drive
 import android.content.Context
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
-import com.google.api.client.http.ByteArrayContent
 import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
@@ -33,27 +32,6 @@ class DriveServiceHelper(context: Context, account: GoogleSignInAccount) {
                     name.lowercase(Locale.ROOT).endsWith(".$it")
                 }
 
-    suspend fun createPlaylist(playlistName: String): String? =
-        withContext(Dispatchers.IO) {
-            val metadata =
-                com.google.api.services.drive.model.File().apply {
-                    name = "$playlistName.mapla.json"
-                    mimeType = "application/json"
-                    description = "MaPla playlist file"
-                }
-            val content =
-                ByteArrayContent.fromString(
-                    "application/json",
-                    """{"name":"$playlistName","tracks":[]}"""
-                )
-            try {
-                driveService.files().create(metadata, content).setFields("id").execute().id
-            } catch (e: Exception) {
-                e.printStackTrace()
-                null
-            }
-        }
-
     suspend fun listChildren(folderId: String?): List<DriveFile> =
         withContext(Dispatchers.IO) {
             val query =
@@ -74,28 +52,6 @@ class DriveServiceHelper(context: Context, account: GoogleSignInAccount) {
                     isFolder = it.mimeType == "application/vnd.google-apps.folder",
                     mimeType = it.mimeType
                 )
-            }
-        }
-
-    suspend fun listAudioFilesInFolder(folderId: String): List<DriveFile> =
-        withContext(Dispatchers.IO) { listChildren(folderId).filter { it.isSupportedAudio() } }
-
-    suspend fun createPlaylistFromFiles(playlistName: String, files: List<DriveFile>): String? =
-        withContext(Dispatchers.IO) {
-            val json =
-                """{"name":"$playlistName","tracks":[${files.joinToString(",") { "\"${it.id}\"" }}]}"""
-            val metadata =
-                com.google.api.services.drive.model.File().apply {
-                    name = "$playlistName.mapla.json"
-                    mimeType = "application/json"
-                    description = "MaPla playlist file"
-                }
-            val content = ByteArrayContent.fromString("application/json", json)
-            try {
-                driveService.files().create(metadata, content).setFields("id").execute().id
-            } catch (e: Exception) {
-                e.printStackTrace()
-                null
             }
         }
 
@@ -125,22 +81,5 @@ class DriveServiceHelper(context: Context, account: GoogleSignInAccount) {
                 currentId = file.parents?.firstOrNull()
             }
             parts.reversed().joinToString("/")
-        }
-
-    suspend fun uploadPlaylistXspf(name: String, xmlContent: String): String? =
-        withContext(Dispatchers.IO) {
-            val metadata =
-                com.google.api.services.drive.model.File().apply {
-                    this.name = "$name.xspf"
-                    mimeType = "application/xspf+xml"
-                    description = "MaPla XSPF playlist"
-                }
-            val content = ByteArrayContent.fromString("application/xspf+xml", xmlContent)
-            try {
-                driveService.files().create(metadata, content).setFields("id").execute().id
-            } catch (e: Exception) {
-                e.printStackTrace()
-                null
-            }
         }
 }
