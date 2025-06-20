@@ -1,5 +1,6 @@
 package inc44.mapla.ui.player
 
+import android.app.Application
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import androidx.compose.foundation.Image
@@ -23,114 +24,100 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
-import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.ExoPlayer
-import inc44.mapla.drive.DriveCacheManager
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
 import inc44.mapla.drive.DriveServiceHelper
 import inc44.mapla.media.TrackInfoParser
-import inc44.mapla.playlist.PlaylistLibrary
-import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlayerScreen(driveHelper: DriveServiceHelper, onAddPlaylist: () -> Unit) {
-    /* data */
-    val playlists by PlaylistLibrary.playlists.collectAsState()
-    var listIndex by remember { mutableStateOf(0) }
-    var trackIndex by remember { mutableStateOf(0) }
+fun PlayerScreen(
+    driveHelper: DriveServiceHelper,
+    onAddPlaylist: () -> Unit
+) {
+    val ctx = LocalContext.current
+    val vm: PlayerViewModel =
+        viewModel(
+            factory =
+                object : ViewModelProvider.Factory {
+                    override fun <T : ViewModel> create(c: Class<T>): T {
+                        @Suppress("UNCHECKED_CAST")
+                        return PlayerViewModel(
+                            ctx.applicationContext as Application,
+                            driveHelper
+                        ) as T
+                    }
+                }
+        )
 
-    /* player */
-    val context = LocalContext.current
-    val player = remember { ExoPlayer.Builder(context).build() }
-    DisposableEffect(player) { onDispose { player.release() } }
-
-    val cache = remember { DriveCacheManager(context, driveHelper) }
-
-    LaunchedEffect(playlists) {
-        if (listIndex >= playlists.size) listIndex = 0
-        val n = playlists.getOrNull(listIndex)?.tracks?.size ?: 0
-        if (trackIndex >= n) trackIndex = 0
-    }
+    val playlists by vm.playlists.collectAsState()
+    val plIndex by vm.playlistIndex.collectAsState()
+    val trkIndex by vm.trackIndex.collectAsState()
+    val playing by vm.isPlaying.collectAsState()
 
     if (playlists.isEmpty()) {
         Box(Modifier.fillMaxSize(), Alignment.Center) { Text("No playlists") }
         return
     }
 
-    val currentPlaylist = playlists[listIndex]
-    val tracks = currentPlaylist.tracks
-    val track = tracks.getOrNull(trackIndex)
+    val tracks = playlists[plIndex].tracks
+    val track = tracks.getOrNull(trkIndex)
 
-    /* cache file */
-    val localFile by
-    produceState<File?>(initialValue = null, key1 = track) {
-        value = track?.let { cache.get(it.id) }
-    }
-
-    /* playback */
-    LaunchedEffect(localFile) {
-        localFile?.let {
-            player.setMediaItem(MediaItem.fromUri(it.toUri()))
-            player.prepare()
-            player.play()
-        }
-    }
+    /* local file */
+    val local by produceState<File?>(null, track) { value = track?.let { vm.cachedFile(it.id) } }
 
     /* artwork */
-    val artwork by
-    produceState<ImageBitmap?>(initialValue = null, key1 = localFile) {
+    val art by produceState<ImageBitmap?>(null, local) {
         value =
             withContext(Dispatchers.IO) {
-                localFile?.let {
+                local?.let {
                     runCatching {
-                        val mmr = MediaMetadataRetriever()
-                        mmr.setDataSource(it.absolutePath)
-                        val bytes = mmr.embeddedPicture
-                        mmr.release()
-                        bytes?.let { b ->
-                            BitmapFactory.decodeByteArray(b, 0, b.size).asImageBitmap()
+                        MediaMetadataRetriever().use { mmr ->
+                            mmr.setDataSource(it.absolutePath)
+                            mmr.embeddedPicture?.let { bytes ->
+                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                    .asImageBitmap()
+                            }
                         }
-                    }
-                        .getOrNull()
+                    }.getOrNull()
                 }
             }
     }
 
-    /* text lines */
+    /* lines */
     val lines =
         remember(track) {
             track?.let {
-                val fname = it.location.substringAfterLast('/')
-                val parsed = TrackInfoParser.parse(fname)
-                when {
-                    parsed?.track != null ->
-                        listOfNotNull(parsed.track, parsed.artist, parsed.album, parsed.year)
-                    parsed?.title != null -> listOfNotNull(parsed.title, parsed.uploadDate)
-                    else -> listOf(TrackInfoParser.clean(fname))
-                }
+                val fn = it.location.substringAfterLast('/')
+                TrackInfoParser.parse(fn)?.let { p ->
+                    when {
+                        p.track != null -> listOfNotNull(p.track, p.artist, p.album, p.year)
+                        else -> listOfNotNull(p.title, p.uploadDate)
+                    }
+                } ?: listOf(TrackInfoParser.clean(fn))
             } ?: emptyList()
         }
 
-    val isPlaying by remember { derivedStateOf { player.isPlaying } }
-
-    Scaffold(topBar = { TopAppBar(title = { Text("Playing") }) }) { inner ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Playing") }) }) { pad ->
         Column(
-            Modifier.padding(inner).fillMaxSize(),
+            modifier = Modifier.padding(pad).fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+
             /* now playing */
             Row(
-                Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
-                    Modifier.size(96.dp).border(1.dp, MaterialTheme.colorScheme.outline),
-                    Alignment.Center
+                    modifier = Modifier.size(96.dp).border(1.dp, MaterialTheme.colorScheme.outline),
+                    contentAlignment = Alignment.Center
                 ) {
-                    artwork?.let {
+                    art?.let {
                         Image(
                             bitmap = it,
                             contentDescription = null,
@@ -140,45 +127,37 @@ fun PlayerScreen(driveHelper: DriveServiceHelper, onAddPlaylist: () -> Unit) {
                     }
                 }
                 Spacer(Modifier.width(12.dp))
-                Column {
-                    lines.forEach { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                }
+                Column { lines.forEach { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) } }
             }
 
-            /* playlists */
+            /* playlist tabs */
             LazyRow(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                itemsIndexed(playlists) { idx, pl ->
+                itemsIndexed(playlists) { i, pl ->
                     Text(
                         pl.title,
                         color =
-                            if (idx == listIndex) MaterialTheme.colorScheme.primary
+                            if (i == plIndex) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurface,
-                        modifier =
-                            Modifier.clickable {
-                                listIndex = idx
-                                trackIndex = 0
-                            }
+                        modifier = Modifier.clickable { vm.selectPlaylist(i) }
                     )
                 }
                 item {
-                    IconButton(onClick = onAddPlaylist) {
-                        Icon(Icons.Default.Add, contentDescription = "New playlist")
-                    }
+                    IconButton(onClick = onAddPlaylist) { Icon(Icons.Default.Add, null) }
                 }
             }
 
-            /* songs */
+            /* track list */
             LazyColumn(
-                Modifier.weight(1f).padding(horizontal = 8.dp),
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                itemsIndexed(tracks) { idx, t ->
+                itemsIndexed(tracks) { i, t ->
                     val name = TrackInfoParser.clean(t.location.substringAfterLast('/'))
-                    val highlight = idx == trackIndex
+                    val hi = i == trkIndex
                     Text(
                         name,
                         maxLines = 1,
@@ -186,11 +165,10 @@ fun PlayerScreen(driveHelper: DriveServiceHelper, onAddPlaylist: () -> Unit) {
                         modifier =
                             Modifier.fillMaxWidth()
                                 .background(
-                                    if (highlight)
-                                        MaterialTheme.colorScheme.primary.copy(alpha = .1f)
+                                    if (hi) MaterialTheme.colorScheme.primary.copy(alpha = .1f)
                                     else Color.Transparent
                                 )
-                                .clickable { trackIndex = idx }
+                                .clickable { vm.selectTrack(i) }
                                 .padding(4.dp)
                     )
                 }
@@ -198,27 +176,20 @@ fun PlayerScreen(driveHelper: DriveServiceHelper, onAddPlaylist: () -> Unit) {
 
             /* transport */
             Row(
-                Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
-                    onClick = {
-                        trackIndex = if (trackIndex > 0) trackIndex - 1 else tracks.lastIndex
-                    }
-                ) {
+                IconButton(onClick = { vm.prevTrack() }) {
                     Icon(Icons.Default.SkipPrevious, null)
                 }
-
-                IconButton(onClick = { if (isPlaying) player.pause() else player.play() }) {
-                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null)
+                IconButton(onClick = { vm.togglePlayPause() }) {
+                    Icon(
+                        if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        null
+                    )
                 }
-
-                IconButton(
-                    onClick = {
-                        trackIndex = if (trackIndex < tracks.lastIndex) trackIndex + 1 else 0
-                    }
-                ) {
+                IconButton(onClick = { vm.nextTrack() }) {
                     Icon(Icons.Default.SkipNext, null)
                 }
             }

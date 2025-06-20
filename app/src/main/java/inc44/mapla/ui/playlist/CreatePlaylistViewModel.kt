@@ -16,17 +16,17 @@ class CreatePlaylistViewModel(private val driveRepo: DriveRepository) : ViewMode
     private val _status = MutableStateFlow<String?>(null)
     val status: StateFlow<String?> = _status
 
-    fun buildPlaylist(name: String, files: List<DriveFile>, onComplete: () -> Unit) {
+    fun buildPlaylist(name: String, files: List<DriveFile>, done: () -> Unit) {
         viewModelScope.launch {
             _status.value = "Building playlist…"
-            val allFiles =
+            val all =
                 files.flatMap {
                     if (it.isFolder) driveRepo.listAudioFilesRecursively(it.id) else listOf(it)
                 }
-            val tracks = allFiles.map { Track(location = driveRepo.getRelativePath(it.id)) }
+            val tracks = all.map { Track(id = it.id, location = driveRepo.getRelativePath(it.id)) }
             PlaylistLibrary.add(Playlist(name, tracks))
             _status.value = null
-            onComplete()
+            done()
         }
     }
 }
